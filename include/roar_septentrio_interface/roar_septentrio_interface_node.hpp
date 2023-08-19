@@ -5,6 +5,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "gps_msgs/msg/gps_fix.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include <tf2_ros/transform_broadcaster.h>
 
 namespace ROAR
 {
@@ -32,6 +33,7 @@ namespace ROAR
             void parse_datum();
             void gps_callback(const gps_msgs::msg::GPSFix::SharedPtr msg);
             void convert_gnss_to_local_cartesian(GeodeticPosition inputGeoPosition, CartesianPosition &outputCartesianPosition);
+            void publishTransformFromOdom(const nav_msgs::msg::Odometry::SharedPtr odom);
 
             GeodeticPosition map_origin_;
             GeographicLib::LocalCartesian proj;
@@ -41,6 +43,9 @@ namespace ROAR
 
             // publishers
             rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
+
+            std::unique_ptr<tf2_ros::TransformBroadcaster>
+                tf_broadcaster_;
         };
     } // namespace SeptentrioInterface
 }

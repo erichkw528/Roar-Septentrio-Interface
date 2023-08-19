@@ -19,6 +19,9 @@ namespace ROAR
       this->declare_parameter("map_frame", "map");
       this->declare_parameter("base_link_frame", "base_link");
       this->declare_parameter("datum", "0.0,0.0,0.0");
+      this->declare_parameter("heading_offset_deg", 90.0);
+
+      this->declare_parameter("should_publish_transform", false);
 
       // create a subscription with best effort QoS
       rclcpp::QoS qos(rclcpp::KeepLast(10));
@@ -28,6 +31,8 @@ namespace ROAR
           qos,
           std::bind(&SeptentrioInterfaceNode::gps_callback, this, std::placeholders::_1));
       this->odom_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("/roar/odometry", 10);
+      this->tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
+      this->parse_datum();
       RCLCPP_INFO_STREAM(get_logger(),
                          "\nInitialized with config\n\t Debug: " << this->get_parameter("debug").as_bool()
                                                                  << "\n\t Datum: "
@@ -44,8 +49,6 @@ namespace ROAR
 
     void SeptentrioInterfaceNode::gps_callback(const gps_msgs::msg::GPSFix::SharedPtr msg)
     {
-      RCLCPP_DEBUG_STREAM(get_logger(), "-------------");
-      RCLCPP_DEBUG_STREAM(get_logger(), "Received GPS message: " << msg->latitude << ", " << msg->longitude << ", " << msg->altitude);
       nav_msgs::msg::Odometry odom;
       odom.header.frame_id = this->get_parameter("map_frame").as_string();
       odom.header.stamp = this->now();
@@ -64,7 +67,16 @@ namespace ROAR
       odom.pose.pose.position.x = float(outputCartesianPosition.x);
       odom.pose.pose.position.y = float(outputCartesianPosition.y);
       odom.pose.pose.position.z = float(outputCartesianPosition.z);
-      odom.pose.pose.orientation = tf2::toMsg(tf2::Quaternion(tf2::Vector3(0, 0, 1), msg->dip));
+      if (!std::isnan(msg->dip))
+      {
+        odom.pose.pose.orientation = tf2::toMsg(tf2::Quaternion(tf2::Vector3(0, 0, 1), msg->dip));
+      }
+      else if (!(std::isnan(msg->track)))
+      {
+        // convert deg to rad
+        double rad = (msg->track + this->get_parameter("heading_offset_deg").as_double()) * M_PI / 180.0;
+        odom.pose.pose.orientation = tf2::toMsg(tf2::Quaternion(tf2::Vector3(0, 0, 1), rad));
+      }
 
       /**
        * Estimate twist
@@ -77,9 +89,31 @@ namespace ROAR
       odom.twist.twist.angular.y = 0;
       odom.twist.twist.angular.z = msg->climb;
 
-      RCLCPP_DEBUG_STREAM(get_logger(), "Publishing Odometry message: " << odom.pose.pose.position.x << ", " << odom.pose.pose.position.y << ", " << odom.pose.pose.position.z);
+      RCLCPP_DEBUG_STREAM(get_logger(), "\n-------------"
+                                            << "\nGPS: " << msg->latitude << ", " << msg->longitude << ", " << msg->altitude
+                                            << "\nCartesian: " << outputCartesianPosition.x << ", " << outputCartesianPosition.y << ", " << outputCartesianPosition.z);
+      // << "\nPublishing Odometry message: "
+      // << odom.pose.pose.position.x << ", " << odom.pose.pose.position.y << ", " << odom.pose.pose.position.z);
 
       this->odom_publisher_->publish(odom);
+      this->publishTransformFromOdom(std::make_shared<nav_msgs::msg::Odometry>(odom));
+    }
+
+    void SeptentrioInterfaceNode::publishTransformFromOdom(const nav_msgs::msg::Odometry::SharedPtr odom)
+    {
+      geometry_msgs::msg::TransformStamped transformStamped;
+      transformStamped.header.stamp = this->now();
+      transformStamped.header.frame_id = this->get_parameter("map_frame").as_string();
+      transformStamped.child_frame_id = this->get_parameter("base_link_frame").as_string();
+
+      transformStamped.transform.translation.x = odom->pose.pose.position.x;
+      transformStamped.transform.translation.y = odom->pose.pose.position.y;
+      transformStamped.transform.translation.z = odom->pose.pose.position.z;
+
+      transformStamped.transform.rotation = odom->pose.pose.orientation;
+
+      // publish tf
+      tf_broadcaster_->sendTransform(transformStamped);
     }
 
     void SeptentrioInterfaceNode::convert_gnss_to_local_cartesian(GeodeticPosition inputGeoPosition, CartesianPosition &outputCartesianPosition)
