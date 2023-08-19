@@ -1,0 +1,7 @@
+/roar/septentrio_interface_node:
+  ros__parameters:
+    base_link_frame: base_link
+    datum: "37.91479456,-122.3342746,0.0"
+    debug: true
+    map_frame: map
+    use_sim_time: false

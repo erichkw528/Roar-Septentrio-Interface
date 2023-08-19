@@ -18,6 +18,7 @@ set(dependencies
   nav_msgs
   tf2_ros
   GeographicLib
+  gps_msgs
 )
 
 ament_auto_add_executable(roar_septentrio_interface_node src/roar_septentrio_interface_node.cpp)
